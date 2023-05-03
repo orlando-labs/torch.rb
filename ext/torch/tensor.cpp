@@ -106,7 +106,6 @@ static VALUE tensor__backward(int argc, VALUE* argv, VALUE self_)
 
 void init_tensor(Rice::Module& m, Rice::Class& c, Rice::Class& rb_cTensorOptions) {
   rb_cTensor = c;
-  rb_cTensor.add_handler<torch::Error>(handle_error);
   add_tensor_functions(rb_cTensor);
   THPVariableClass = rb_cTensor.value();
 
@@ -296,7 +295,6 @@ void init_tensor(Rice::Module& m, Rice::Class& c, Rice::Class& rb_cTensorOptions
       });
 
   rb_cTensorOptions
-    .add_handler<torch::Error>(handle_error)
     .define_method(
       "dtype",
       [](torch::TensorOptions& self, int dtype) {
