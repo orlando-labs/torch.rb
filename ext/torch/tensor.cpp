@@ -21,6 +21,8 @@ Array flat_data(Tensor& tensor) {
   return a;
 }
 
+#define RB_ARITHMETIC_SEQUENCE rb_const_get(rb_const_get(rb_cObject, rb_intern("Enumerator")), rb_intern("ArithmeticSequence"))
+
 Class rb_cTensor;
 
 std::vector<TensorIndex> index_vector(Array a) {
@@ -36,7 +38,7 @@ std::vector<TensorIndex> index_vector(Array a) {
       indices.push_back(Rice::detail::From_Ruby<int64_t>().convert(obj.value()));
     } else if (obj == Rice::Symbol("ellipsis")) {
       indices.push_back(torch::indexing::Ellipsis);
-    } else if (obj.respond_to("begin") && obj.respond_to("end")) {
+    } else if (obj.is_instance_of(rb_cRange) || obj.is_instance_of(RB_ARITHMETIC_SEQUENCE)) {
       torch::optional<c10::SymInt> start_index = torch::nullopt;
       torch::optional<c10::SymInt> stop_index = torch::nullopt;
       torch::optional<c10::SymInt> stride = torch::nullopt;
@@ -51,7 +53,7 @@ std::vector<TensorIndex> index_vector(Array a) {
         stop_index = c10::SymInt(Rice::detail::From_Ruby<int64_t>().convert(end.value()));
       }
       
-      if (obj.respond_to("step")) {
+      if (obj.is_instance_of(RB_ARITHMETIC_SEQUENCE)) {
         Object step = obj.call("step");
         if (!step.is_nil()) {
           stride = c10::SymInt(Rice::detail::From_Ruby<int64_t>().convert(step.value()));
