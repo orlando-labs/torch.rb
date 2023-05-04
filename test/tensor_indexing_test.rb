@@ -105,4 +105,37 @@ class TensorIndexingTest < Minitest::Test
     end
     assert_equal "Unsupported index type: Object", error.message
   end
+
+  def test_ellipsis_index_self
+    x = Torch.tensor(16.times.to_a).reshape(2, 2, 2, 2)
+    slice = x[:ellipsis]
+    assert_tensor slice.to_a, x
+  end
+
+  def test_ellipsis_index
+    x = Torch.tensor([[[
+      [ 0,  1],
+			[ 2,  3]],
+		 [[ 4,  5],
+			[ 6,  7]]],
+		[[[ 8,  9],
+			[10, 11]],
+		 [[12, 13],
+			[14, 15]]]]
+    )
+    
+    slice = x[:ellipsis, 0]
+    ground_truth = [[
+       [ 0,  2],
+       [ 4,  6]],
+      [[ 8, 10],
+       [12, 14]]]
+    
+    assert_tensor ground_truth, slice
+  end
+
+  def test_strided_range_index
+    x = Torch.tensor([0, 1, 2, 3, 4, 5, 6, 7])
+    assert_tensor [0, 2, 4, 6], x[(0..).step(2)]
+  end
 end
