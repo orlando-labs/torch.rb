@@ -54,7 +54,7 @@ std::vector<TensorIndex> index_vector(Array a) {
       if (obj.is_instance_of(rb_const_get(rb_cObject, rb_intern("Enumerator::ArithmeticSequence")))) {
         Object step = obj.call("step");
         if (!step.is_nil()) {
-          stride = c10::SymInt(Rice::detail::From_Ruby<int64_t>().convert(stride.value()));
+          stride = c10::SymInt(Rice::detail::From_Ruby<int64_t>().convert(step.value()));
         }
       }
 
