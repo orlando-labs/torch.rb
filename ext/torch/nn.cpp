@@ -7,6 +7,7 @@
 #include "nn_functions.h"
 #include "templates.h"
 #include "utils.h"
+#include "nn_utils.h"
 
 // need to make a distinction between parameters and tensors
 class Parameter: public torch::autograd::Variable {
@@ -17,6 +18,7 @@ class Parameter: public torch::autograd::Variable {
 void init_nn(Rice::Module& m) {
   auto rb_mNN = Rice::define_module_under(m, "NN");
   add_nn_functions(rb_mNN);
+  init_nn_utils(rb_mNN);
 
   Rice::define_module_under(rb_mNN, "Init")
     .define_singleton_function(

@@ -1,6 +1,8 @@
 module Torch
   module NN
     module Utils
+      extend self
+
       def _single(value)
         _ntuple(1, value)
       end
@@ -35,3 +37,15 @@ module Torch
     end
   end
 end
+
+require_relative "utils/hooks"
+require_relative "utils/clip_grad"
+require_relative "utils/convert_parameters"
+require_relative "utils/fusion"
+require_relative "utils/init"
+require_relative "utils/memory_format"
+require_relative "utils/parametrize"
+require_relative "utils/rnn"
+require_relative "utils/stateless"
+require_relative "utils/weight_norm"
+require_relative "utils/spectral_norm"
