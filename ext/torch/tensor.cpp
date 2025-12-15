@@ -1,9 +1,11 @@
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include <torch/torch.h>
 
 #include <rice/rice.hpp>
+#include <ruby/ruby.h>
 
 #include "tensor_functions.h"
 #include "ruby_arg_parser.h"
@@ -14,15 +16,33 @@ using Rice::Array;
 using Rice::Object;
 using torch::indexing::TensorIndex;
 
+static inline VALUE to_ruby_value(uint8_t value) { return UINT2NUM(value); }
+static inline VALUE to_ruby_value(int8_t value) { return INT2NUM(static_cast<long>(value)); }
+static inline VALUE to_ruby_value(int16_t value) { return INT2NUM(static_cast<long>(value)); }
+static inline VALUE to_ruby_value(int32_t value) { return INT2NUM(static_cast<long>(value)); }
+static inline VALUE to_ruby_value(int64_t value) { return LL2NUM(value); }
+static inline VALUE to_ruby_value(float value) { return DBL2NUM(static_cast<double>(value)); }
+static inline VALUE to_ruby_value(double value) { return DBL2NUM(value); }
+static inline VALUE to_ruby_value(bool value) { return value ? Qtrue : Qfalse; }
+static inline VALUE to_ruby_value(const c10::complex<float>& value) {
+  return rb_dbl_complex_new(value.real(), value.imag());
+}
+static inline VALUE to_ruby_value(const c10::complex<double>& value) {
+  return rb_dbl_complex_new(value.real(), value.imag());
+}
+
 template<typename T>
 Array flat_data(Tensor& tensor) {
-  Tensor view = tensor.reshape({tensor.numel()});
+  // tensor must already be on CPU and contiguous so data_ptr covers flattened storage
+  const auto numel = tensor.numel();
+  const T* data = tensor.data_ptr<T>();
 
-  Array a;
-  for (int i = 0; i < tensor.numel(); i++) {
-    a.push(view[i].item().to<T>(), false);
+  VALUE ary = rb_ary_new_capa(static_cast<long>(numel));
+  for (int64_t i = 0; i < numel; i++) {
+    rb_ary_push(ary, to_ruby_value(data[i]));
   }
-  return a;
+
+  return Array(ary);
 }
 
 Rice::Class rb_cTensor;
@@ -230,6 +250,15 @@ void init_tensor(Rice::Module& m, Rice::Class& c, Rice::Class& rb_cTensorOptions
           tensor = tensor.to(device);
         }
 
+        // resolve view metadata so raw access matches logical values
+        if (tensor.is_conj()) {
+          tensor = tensor.resolve_conj();
+        }
+        if (tensor.is_neg()) {
+          tensor = tensor.resolve_neg();
+        }
+
+        // ensure contiguous layout before reading raw bytes
         if (!tensor.is_contiguous()) {
           tensor = tensor.contiguous();
         }
@@ -253,6 +282,19 @@ void init_tensor(Rice::Module& m, Rice::Class& c, Rice::Class& rb_cTensorOptions
         if (tensor.device().type() != torch::kCPU) {
           torch::Device device("cpu");
           tensor = tensor.to(device);
+        }
+
+        // resolve view metadata so raw access matches logical values
+        if (tensor.is_conj()) {
+          tensor = tensor.resolve_conj();
+        }
+        if (tensor.is_neg()) {
+          tensor = tensor.resolve_neg();
+        }
+
+        // flatten by walking raw storage rather than indexing element-by-element
+        if (!tensor.is_contiguous()) {
+          tensor = tensor.contiguous();
         }
 
         auto dtype = tensor.dtype();
