@@ -25,6 +25,7 @@ module Torch
     alias_method :<<, :__lshift__
     alias_method :>>, :__rshift__
     alias_method :~, :bitwise_not
+    alias_method :to_a, :_to_a
 
     def self.new(*args)
       FloatTensor.new(*args)
@@ -49,19 +50,6 @@ module Torch
 
       size(0).times do |i|
         yield self[i]
-      end
-    end
-
-    # TODO make more performant
-    def to_a
-      arr = _flat_data
-      if shape.empty?
-        arr
-      else
-        shape[1..-1].reverse_each do |dim|
-          arr = arr.each_slice(dim)
-        end
-        arr.to_a
       end
     end
 

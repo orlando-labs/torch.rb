@@ -31,6 +31,30 @@ static inline VALUE to_ruby_value(const c10::complex<double>& value) {
   return rb_dbl_complex_new(value.real(), value.imag());
 }
 
+// normalize tensor for direct memory access
+// moves to CPU, resolves view metadata, and ensures contiguous storage
+static Tensor prepare_tensor_for_read(const Tensor& source) {
+  auto tensor = source;
+
+  if (tensor.device().type() != torch::kCPU) {
+    torch::Device device("cpu");
+    tensor = tensor.to(device);
+  }
+
+  if (tensor.is_conj()) {
+    tensor = tensor.resolve_conj();
+  }
+  if (tensor.is_neg()) {
+    tensor = tensor.resolve_neg();
+  }
+
+  if (!tensor.is_contiguous()) {
+    tensor = tensor.contiguous();
+  }
+
+  return tensor;
+}
+
 template<typename T>
 Array flat_data(Tensor& tensor) {
   // tensor must already be on CPU and contiguous so data_ptr covers flattened storage
@@ -43,6 +67,42 @@ Array flat_data(Tensor& tensor) {
   }
 
   return Array(ary);
+}
+
+template<typename T>
+static VALUE nested_array_from_data(const T*& data, const std::vector<int64_t>& sizes, size_t dim) {
+  const int64_t dim_size = sizes[dim];
+  VALUE ary = rb_ary_new_capa(static_cast<long>(dim_size));
+
+  if (dim + 1 == sizes.size()) {
+    for (int64_t i = 0; i < dim_size; ++i) {
+      rb_ary_push(ary, to_ruby_value(*data));
+      data++;
+    }
+    return ary;
+  }
+
+  for (int64_t i = 0; i < dim_size; ++i) {
+    rb_ary_push(ary, nested_array_from_data(data, sizes, dim + 1));
+  }
+
+  return ary;
+}
+
+template<typename T>
+static Object tensor_to_ruby_array_for_type(Tensor& tensor, const std::vector<int64_t>& sizes) {
+  const auto numel = tensor.numel();
+  const T* data = tensor.data_ptr<T>();
+
+  if (sizes.empty()) {
+    VALUE ary = rb_ary_new_capa(static_cast<long>(numel));
+    for (int64_t i = 0; i < numel; ++i) {
+      rb_ary_push(ary, to_ruby_value(data[i]));
+    }
+    return Object(ary);
+  }
+
+  return Object(nested_array_from_data(data, sizes, 0));
 }
 
 Rice::Class rb_cTensor;
@@ -242,27 +302,7 @@ void init_tensor(Rice::Module& m, Rice::Class& c, Rice::Class& rb_cTensorOptions
     .define_method(
       "_data_str",
       [](Tensor& self) {
-        auto tensor = self;
-
-        // move to CPU to get data
-        if (tensor.device().type() != torch::kCPU) {
-          torch::Device device("cpu");
-          tensor = tensor.to(device);
-        }
-
-        // resolve view metadata so raw access matches logical values
-        if (tensor.is_conj()) {
-          tensor = tensor.resolve_conj();
-        }
-        if (tensor.is_neg()) {
-          tensor = tensor.resolve_neg();
-        }
-
-        // ensure contiguous layout before reading raw bytes
-        if (!tensor.is_contiguous()) {
-          tensor = tensor.contiguous();
-        }
-
+        auto tensor = prepare_tensor_for_read(self);
         auto data_ptr = (const char *) tensor.data_ptr();
         return std::string(data_ptr, tensor.numel() * tensor.element_size());
       })
@@ -276,27 +316,7 @@ void init_tensor(Rice::Module& m, Rice::Class& c, Rice::Class& rb_cTensorOptions
     .define_method(
       "_flat_data",
       [](Tensor& self) {
-        auto tensor = self;
-
-        // move to CPU to get data
-        if (tensor.device().type() != torch::kCPU) {
-          torch::Device device("cpu");
-          tensor = tensor.to(device);
-        }
-
-        // resolve view metadata so raw access matches logical values
-        if (tensor.is_conj()) {
-          tensor = tensor.resolve_conj();
-        }
-        if (tensor.is_neg()) {
-          tensor = tensor.resolve_neg();
-        }
-
-        // flatten by walking raw storage rather than indexing element-by-element
-        if (!tensor.is_contiguous()) {
-          tensor = tensor.contiguous();
-        }
-
+        auto tensor = prepare_tensor_for_read(self);
         auto dtype = tensor.dtype();
         if (dtype == torch::kByte) {
           return flat_data<uint8_t>(tensor);
@@ -318,6 +338,42 @@ void init_tensor(Rice::Module& m, Rice::Class& c, Rice::Class& rb_cTensorOptions
           return flat_data<c10::complex<float>>(tensor);
         } else if (dtype == torch::kComplexDouble) {
           return flat_data<c10::complex<double>>(tensor);
+        } else {
+          throw std::runtime_error("Unsupported type");
+        }
+      })
+    .define_method(
+      "_to_a",
+      [](Tensor& self) {
+        auto tensor = prepare_tensor_for_read(self);
+
+        std::vector<int64_t> sizes;
+        sizes.reserve(tensor.dim());
+        for (auto size : tensor.sizes()) {
+          sizes.push_back(size);
+        }
+
+        auto dtype = tensor.dtype();
+        if (dtype == torch::kByte) {
+          return tensor_to_ruby_array_for_type<uint8_t>(tensor, sizes);
+        } else if (dtype == torch::kChar) {
+          return tensor_to_ruby_array_for_type<int8_t>(tensor, sizes);
+        } else if (dtype == torch::kShort) {
+          return tensor_to_ruby_array_for_type<int16_t>(tensor, sizes);
+        } else if (dtype == torch::kInt) {
+          return tensor_to_ruby_array_for_type<int32_t>(tensor, sizes);
+        } else if (dtype == torch::kLong) {
+          return tensor_to_ruby_array_for_type<int64_t>(tensor, sizes);
+        } else if (dtype == torch::kFloat) {
+          return tensor_to_ruby_array_for_type<float>(tensor, sizes);
+        } else if (dtype == torch::kDouble) {
+          return tensor_to_ruby_array_for_type<double>(tensor, sizes);
+        } else if (dtype == torch::kBool) {
+          return tensor_to_ruby_array_for_type<bool>(tensor, sizes);
+        } else if (dtype == torch::kComplexFloat) {
+          return tensor_to_ruby_array_for_type<c10::complex<float>>(tensor, sizes);
+        } else if (dtype == torch::kComplexDouble) {
+          return tensor_to_ruby_array_for_type<c10::complex<double>>(tensor, sizes);
         } else {
           throw std::runtime_error("Unsupported type");
         }

@@ -25,4 +25,14 @@ class FlatDataTest < Minitest::Test
     tensor = Torch.tensor([0, 127, 255], dtype: :uint8)
     assert_equal [0, 127, 255], tensor.to_a
   end
+
+  def test_scalar_to_a
+    tensor = Torch.tensor(5, dtype: :int64)
+    assert_equal [5], tensor.to_a
+  end
+
+  def test_empty_inner_dim_to_a
+    tensor = Torch.empty(2, 0, dtype: :float32)
+    assert_equal [[], []], tensor.to_a
+  end
 end
